@@ -94,7 +94,7 @@ extern doublePair lastScreenViewCenter;
 static char shouldMoveCamera = true;
 
 
-extern double viewWidth;
+extern double visibleViewWidth;
 extern double viewHeight;
 
 extern int screenW, screenH;
@@ -3933,7 +3933,7 @@ void LivingLifePage::drawOffScreenSounds() {
         return;
         }
     
-    double xRadius = viewWidth / 2 - 32;
+    double xRadius = visibleViewWidth / 2 - 32;
     double yRadius = viewHeight / 2 - 32;
     
     FloatColor red = { 0.65, 0, 0, 1 };
@@ -6614,11 +6614,11 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
 
     //setDrawColor( 1, 1, 1, 1 );
-    //drawSquare( lastScreenViewCenter, viewWidth );
+    //drawSquare( lastScreenViewCenter, visibleViewWidth );
     
 
     //if( currentGamePage != NULL ) {
-    //    currentGamePage->base_draw( lastScreenViewCenter, viewWidth );
+    //    currentGamePage->base_draw( lastScreenViewCenter, visibleViewWidth );
     //    }
     
     setDrawColor( 1, 1, 1, 1 );
@@ -13999,11 +13999,17 @@ void LivingLifePage::step() {
             if( mTutorialNumber <= 0 ) {
                 // not in tutorial
                 // display this message
+
+                int numLines;
+                char **lines = split( message, "\n", &numLines );
                 
-                char messageFromServer[200];
-                sscanf( message, "MS\n%199s", messageFromServer );            
-                
-                displayGlobalMessage( messageFromServer );
+                if( numLines > 1 ) {
+                    displayGlobalMessage( lines[1] );
+                    }
+                for( int i=0; i<numLines; i++ ) {
+                    delete [] lines[i];
+                    }
+                delete [] lines;
                 }
             }
         else if( type == WAR_REPORT ) {
@@ -15496,19 +15502,56 @@ void LivingLifePage::step() {
                 delete [] lines[0];
                 }
             
-            char idBuffer[500];
-            
+
             for( int i=1; i<numLines; i++ ) {
                 
                 int x, y, floorID, responsiblePlayerID;
                 int oldX, oldY;
                 float speed = 0;
                                 
+                char *lineCopy = NULL;
                 
-                int numRead = sscanf( lines[i], "%d %d %d %499s %d %d %d %f",
+                // scan everything but 4th token, which is a string of 
+                // unknown length.  %*s will scan it but skip
+                // saving it in a variable
+                // numRead won't include this skipped string in the count
+                int numRead = sscanf( lines[i], "%d %d %d %*s %d %d %d %f",
                                       &x, &y, &floorID, 
-                                      idBuffer, &responsiblePlayerID,
+                                      // skip 4th token
+                                      &responsiblePlayerID,
                                       &oldX, &oldY, &speed );
+                char *idBuffer = NULL;
+                
+                if( numRead >= 4 ) {
+                    // we scanned past the 4th skipped token
+                    // now tokenize to extract it
+                    // do this in place to avoid allocating a bunch
+                    // of strings that we don't need
+
+                    lineCopy = stringDuplicate( lines[i] );
+
+                    SimpleVector<char *> *tokenPointers = 
+                        tokenizeStringInPlace( lineCopy );
+                    
+                    if( tokenPointers->size() >= 4 ) {
+                        idBuffer = tokenPointers->getElementDirect( 3 );
+                        }
+                    
+                    // we can safely delete vector, since it only
+                    // contains pointers into lineCopy
+                    delete tokenPointers;
+                    
+                    // we also don't need to worry about deleting idBuffer
+                    // since it's a pointer into lineCopy
+
+                    // lineCopy is now mangled and full of \0, but that's okay
+                    // because it's a copy
+
+                    // and we just scanned one more token
+                    numRead ++;
+                    }
+                
+
                 if( numRead == 5 || numRead == 8) {
 
                     applyReceiveOffset( &x, &y );
@@ -15556,6 +15599,9 @@ void LivingLifePage::step() {
                                                  lines[i] ) );
                                 
                                 delete [] lines[i];
+                                if( lineCopy != NULL ) {
+                                    delete [] lineCopy;
+                                    }
                                 continue;
                                 }
                             }
@@ -16383,6 +16429,9 @@ void LivingLifePage::step() {
                     }
                 
                 delete [] lines[i];
+                if( lineCopy != NULL ) {
+                    delete [] lineCopy;
+                    }
                 }
             
             delete [] lines;
@@ -16522,12 +16571,12 @@ void LivingLifePage::step() {
                 int forced = 0;
                 int done_moving = 0;
                 
-                char *holdingIDBuffer = new char[500];
+                char *holdingIDBuffer = NULL;
 
                 int heldOriginValid, heldOriginX, heldOriginY,
                     heldTransitionSourceID;
                 
-                char *clothingBuffer = new char[500];
+                char *clothingBuffer = NULL;
                 
                 int justAte = 0;
                 int justAteID = 0;
@@ -16545,13 +16594,17 @@ void LivingLifePage::step() {
                 int heldYum = 0;
                 int heldLearned = 1;
                 
+                // skip strings of unknown length in middle
+                // 7th string and 20th string
+                // %*s skips them
+                // numRead won't include these skipped strings in the count
                 int numRead = sscanf( lines[i], 
                                       "%d %d "
                                       "%d "
                                       "%d "
                                       "%d %d "
-                                      "%499s %d %d %d %d %f %d %d %d %d "
-                                      "%lf %lf %lf %499s %d %d %d "
+                                      "%*s %d %d %d %d %f %d %d %d %d "
+                                      "%lf %lf %lf %*s %d %d %d "
                                       "%d %d",
                                       &( o.id ),
                                       &( o.displayID ),
@@ -16559,7 +16612,7 @@ void LivingLifePage::step() {
                                       &actionAttempt,
                                       &actionTargetX,
                                       &actionTargetY,
-                                      holdingIDBuffer,
+                                      // skip 7th string
                                       &heldOriginValid,
                                       &heldOriginX,
                                       &heldOriginY,
@@ -16572,16 +16625,51 @@ void LivingLifePage::step() {
                                       &( o.age ),
                                       &invAgeRate,
                                       &( o.lastSpeed ),
-                                      clothingBuffer,
+                                      // skip 20th string
                                       &justAte,
                                       &justAteID,
                                       &responsiblePlayerID,
                                       &heldYum,
                                       &heldLearned );
                 
+                char *lineCopy = NULL;
+                if( numRead >= 21 ) {
+                    // scanned all but skipped strings
+                    
+                    // now tokenize to extract them
+                    // do this in place to avoid allocating a bunch
+                    // of strings that we don't need
+
+                    lineCopy = stringDuplicate( lines[i] );
+
+                    SimpleVector<char *> *tokenPointers = 
+                        tokenizeStringInPlace( lineCopy );
+                    
+                    if( tokenPointers->size() >= 20 ) {
+                        // 7th string
+                        holdingIDBuffer = tokenPointers->getElementDirect( 6 );
+                        // 20th string
+                        clothingBuffer = tokenPointers->getElementDirect( 19 );
+                        }
+                    
+                    // we can safely delete vector, since it only
+                    // contains pointers into lineCopy
+                    delete tokenPointers;
+                    
+                    // we also don't need to worry about deleting either
+                    // id buffer
+                    // since they're pointers into lineCopy
+
+                    // lineCopy is now mangled and full of \0, but that's okay
+                    // because it's a copy
+
+                    // and we just scanned two more tokens
+                    numRead += 2;
+                    }
                 
+
                 // heldYum is 24th value, optional
-                // heldLearned is 26th value, optional
+                // heldLearned is 25th value, optional
                 if( numRead >= 23 ) {
 
                     applyReceiveOffset( &actionTargetX, &actionTargetY );
@@ -18533,10 +18621,12 @@ void LivingLifePage::step() {
                         }
                     }
                 
-                delete [] holdingIDBuffer;
-                delete [] clothingBuffer;
                 
                 delete [] lines[i];
+                
+                if( lineCopy != NULL ) {
+                    delete [] lineCopy;
+                    }
                 }
             
             for( int i=0; i<unusedHolderID.size(); i++ ) {
@@ -20813,11 +20903,11 @@ void LivingLifePage::step() {
                 lrint( moveScale * 
                        cameraFollowsObject->currentMoveDirection.y );
  
-            if( screenCenterPlayerOffsetX < -viewWidth / 3 ) {
-                screenCenterPlayerOffsetX =  -viewWidth / 3;
+            if( screenCenterPlayerOffsetX < -visibleViewWidth / 3 ) {
+                screenCenterPlayerOffsetX =  -visibleViewWidth / 3;
                 }
-            if( screenCenterPlayerOffsetX >  viewWidth / 3 ) {
-                screenCenterPlayerOffsetX =  viewWidth / 3;
+            if( screenCenterPlayerOffsetX >  visibleViewWidth / 3 ) {
+                screenCenterPlayerOffsetX =  visibleViewWidth / 3;
                 }
             if( screenCenterPlayerOffsetY < -viewHeight / 5 ) {
                 screenCenterPlayerOffsetY =  -viewHeight / 5;
@@ -20890,7 +20980,7 @@ void LivingLifePage::step() {
         
         char viewChange = false;
         
-        int maxRX = viewWidth / 15;
+        int maxRX = visibleViewWidth / 15;
         int maxRY = viewHeight / 15;
         int maxR = 0;
         double moveSpeedFactor = 20 * cameraFollowsObject->currentSpeed;
@@ -25894,6 +25984,10 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
                             else if( commandTyped( typedText, 
                                                    "unfollowCommand" ) ) {
                                 sendToServerSocket( (char*)"UNFOL 0 0#" );
+                                }
+                            else if( commandTyped( typedText, 
+                                                   "propertyCommand" ) ) {
+                                sendToServerSocket( (char*)"PROP 0 0#" );
                                 }
                             else {
                                 // filter hints
